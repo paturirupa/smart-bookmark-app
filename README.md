@@ -27,6 +27,12 @@ A modern bookmark manager built with Next.js, Supabase, and Tailwind CSS that al
 4. Run the development server: `npm run dev`
 5. Open http://localhost:3000
 
+## Database Setup (RLS)
+
+Run the SQL in [supabase/rls.sql](supabase/rls.sql) inside the Supabase SQL editor to enable Row Level Security and restrict access to each user's own bookmarks.
+
+Note: This also sets replica identity to FULL so delete events include row data for Realtime filters.
+
 ## Problems Encountered and Solutions
 
 ### Problem 1: Bookmarks is not defined Error
@@ -53,32 +59,40 @@ import Bookmarks from '@/components/Bookmarks'
 - Wrapped fetchBookmarks with useCallback
 - Added error handling with console logging and user alerts
 
-### Problem 3: Real-time Updates Not Working
-**Issue**: WebSocket connection failed with error: WebSocket is closed before the connection is established
+### Problem 3: Real-time Updates & User Privacy
+**Issue**: 
+1. WebSocket connection failed with error: "WebSocket is closed before the connection is established"
+2. Realtime connection times out (`TIMED_OUT` / `CHANNEL_ERROR` status)
+3. Initially, all users could potentially see each other's bookmarks
 
-**Cause**: Supabase real-time WebSocket had configuration issues or network restrictions.
+**Cause**: 
+1. Multiple WebSocket/Realtime issues:
+   - RLS policies initially blocking realtime access
+   - Realtime table publication not configured
+   - Replica identity not FULL for delete events
+   - Network/VPN/proxy blocking WebSocket connections
+   - Session/auth not properly set before subscribing
+2. Missing user filtering in database queries for privacy
 
-**Solution**: Implemented polling-based real-time sync instead of WebSocket:
-- Added setInterval to poll for updates every 2 seconds
-- This provides cross-tab synchronization without WebSocket dependencies
-- More reliable in various network environments
+**Solutions Implemented**:
 
-### Problem 4: Input Text Not Visible
-**Issue**: Text typed into input fields was hard to see or appeared very light.
-
-**Cause**: Tailwind CSS default text color was too light.
-
-**Solution**: Added text-black class to all input fields to ensure proper text visibility.
-
-### Problem 5: Bookmarks Privacy
-**Issue**: Initially, all users could potentially see each others bookmarks.
-
-**Cause**: Missing user filtering in database queries.
-
-**Solution**: 
+*Privacy & RLS*:
 - Added .eq('user_id', user.id) filter to all bookmark queries
-- Ensured Supabase RLS policies enforce user-level data isolation
+- Enabled RLS with proper SELECT/INSERT/UPDATE/DELETE policies for auth.uid()
+- Set replica identity to FULL for delete events: `alter table public.bookmarks replica identity full`
 - Each user now only sees their own bookmarks
+
+*Real-time WebSocket (Attempted)*:
+- Added bookmarks to supabase_realtime publication
+- Called supabase.auth.getSession() and supabase.realtime.setAuth(token) before subscribing
+- Added realtime status logging to console
+- Tested on different networks (hotspot and incognito)
+- Disabled VPN/proxy and browser extensions
+- Verified project realtime enabled in settings
+
+**Result**: WebSocket connections remain in TIMED_OUT state despite all checks. This appears to be a network or Supabase service-level issue outside the app code.
+
+**Workaround**: Currently relying on local state updates (fetchBookmarks() after insert/delete in same tab). Cross-tab sync via polling fallback is an alternative if needed.
 
 ## Deployment
 
